@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Keyboard Sounds</title>
+<style>
+  :root{
+    /* A full ANSI row is 15 key-units plus 14 gaps, and the gap is 18% of a
+       key, so a row is 17.52 units wide. Deriving the unit from the viewport
+       keeps the keyboard from overflowing at any width; keeping the gap
+       proportional keeps the keys clearly separate at every size too. */
+    --pad: clamp(8px, 1.6vw, 18px);
+    --u: min(46px, calc((100vw - 24px - var(--pad) * 2) / 17.52));
+    --gap: calc(var(--u) * 0.18);
+    --accent: #6ee7b7;
+    --bg: #0d1016;
+    --text: #cfd7e6;
+    --muted: #7c879b;
+  }
+  *{ box-sizing: border-box; }
+  html,body{ min-height: 100%; }
+  body{
+    margin: 0;
+    min-height: 100vh;
+    padding: clamp(18px, 4vh, 44px) 12px clamp(24px, 6vh, 60px);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: clamp(16px, 3vh, 30px);
+    background:
+      radial-gradient(900px 500px at 50% -12%, #1d2635 0%, transparent 70%),
+      radial-gradient(700px 400px at 50% 115%, #16202c 0%, transparent 70%),
+      var(--bg);
+    color: var(--text);
+    font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    overflow-x: hidden;
+  }
+  header{ text-align: center; }
+  h1{
+    margin: 0;
+    font-size: clamp(19px, 3.4vw, 30px);
+    font-weight: 650;
+    letter-spacing: .01em;
+  }
+  h1 .dot{ color: var(--accent); transition: color .3s; }
+  .sub{ margin: 7px 0 0; color: var(--muted); font-size: clamp(12px, 1.6vw, 13.5px); }
+
+  /* ---------- controls ---------- */
+  .controls{
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
+    gap: 12px 30px;
+  }
+  .seg{
+    display: flex; gap: 6px; padding: 5px;
+    background: #151b25; border: 1px solid #232c3a; border-radius: 12px;
+  }
+  .seg button{
+    appearance: none; border: 0; cursor: pointer;
+    padding: 7px 13px; border-radius: 9px;
+    background: transparent; color: var(--muted);
+    font: inherit; font-size: 13px; font-weight: 600;
+    transition: background .18s, color .18s, transform .08s;
+  }
+  .seg button:hover{ color: var(--text); }
+  .seg button[aria-pressed="true"]{
+    color: #0b0e13;
+    background: var(--chip, var(--accent));
+    box-shadow: 0 0 0 1px rgba(255,255,255,.08), 0 4px 14px -6px var(--chip, var(--accent));
+  }
+  .seg button:active{ transform: scale(.96); }
+
+  .volume{ display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 12.5px; }
+  input[type=range]{
+    appearance: none; width: 108px; height: 4px; border-radius: 4px;
+    background: #2a3444; outline: none; cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    appearance: none; width: 15px; height: 15px; border-radius: 50%;
+    background: var(--accent); border: 0; box-shadow: 0 0 0 4px rgba(255,255,255,.06);
+    transition: background .3s;
+  }
+  input[type=range]::-moz-range-thumb{
+    width: 15px; height: 15px; border: 0; border-radius: 50%; background: var(--accent);
+  }
+
+  .ghost{
+    appearance: none; cursor: pointer; font: inherit; font-size: 13px; font-weight: 600;
+    color: var(--text); background: #151b25; border: 1px solid #232c3a;
+    padding: 8px 15px; border-radius: 10px;
+    transition: background .18s, border-color .18s, transform .08s;
+  }
+  .ghost:hover{ background: #1b2330; border-color: #2f3a4b; }
+  .ghost:active{ transform: scale(.97); }
+  .ghost[disabled]{ opacity: .5; cursor: default; }
+
+  /* ---------- keyboard ---------- */
+  .board{
+    padding: var(--pad);
+    border-radius: calc(var(--u) / 3);
+    background: linear-gradient(#212936, #171d27);
+    border: 1px solid #2b3547;
+    box-shadow:
+      0 26px 50px -22px rgba(0,0,0,.85),
+      0 2px 0 rgba(255,255,255,.04) inset,
+      0 -30px 50px -40px #000 inset;
+    max-width: 100%;
+  }
+  .rows{ display: flex; flex-direction: column; gap: var(--gap); }
+  .row{ display: flex; gap: var(--gap); }
+
+  .key{
+    position: relative;
+    width: calc(var(--u) * var(--w) + var(--gap) * (var(--w) - 1));
+    height: var(--u);
+    padding: 0;
+    flex: 0 0 auto;
+    border: 0; border-radius: calc(var(--u) * 0.19);
+    cursor: pointer;
+    color: #c8d2e4;
+    font: inherit;
+    font-size: max(8px, calc(var(--u) * 0.29));
+    font-weight: 600;
+    letter-spacing: .01em;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+    background: linear-gradient(180deg, #3a4356 0%, #2a3140 62%, #242a37 100%);
+    box-shadow:
+      0 3px 0 #14171f,
+      0 5px 8px -1px rgba(0,0,0,.5),
+      0 1px 0 rgba(255,255,255,.10) inset;
+    transform: translateY(0);
+    transition: transform .05s ease, box-shadow .05s ease, color .25s;
+    touch-action: manipulation;
+  }
+  .key .label{ pointer-events: none; white-space: nowrap; }
+  .key.small{ font-size: max(7px, calc(var(--u) * 0.22)); color: #93a0b6; }
+  .key.flash{
+    transform: translateY(3px);
+    box-shadow:
+      0 0 0 #14171f,
+      0 1px 3px rgba(0,0,0,.5),
+      0 0 0 1px var(--accent) inset,
+      0 0 22px -4px var(--accent);
+    color: #fff;
+  }
+  .key.flash::after{
+    content: "";
+    position: absolute; inset: 0; border-radius: inherit;
+    background: radial-gradient(120% 120% at 50% 0%, color-mix(in srgb, var(--accent) 34%, transparent), transparent 70%);
+    pointer-events: none;
+  }
+
+  footer{
+    color: var(--muted); font-size: 12.5px; text-align: center;
+    max-width: 620px; margin: 0;
+  }
+  kbd{
+    font: inherit; font-size: 11.5px; padding: 2px 6px; border-radius: 6px;
+    background: #1a2130; border: 1px solid #2b3547; color: #a9b5c9;
+  }
+  .count{ color: var(--accent); font-variant-numeric: tabular-nums; font-weight: 600; transition: color .3s; }
+  @media (prefers-reduced-motion: reduce){
+    .key{ transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Keyboard <span class="dot">Sounds</span></h1>
+  <p class="sub">Every key is a real synthesized switch — click away, or type on your own keyboard.</p>
+</header>
+
+<div class="controls">
+  <div class="seg" role="group" aria-label="Switch type">
+    <button type="button" data-type="blue"   style="--chip:#4f8cff">Clicky</button>
+    <button type="button" data-type="brown"  style="--chip:#d08b4f">Tactile</button>
+    <button type="button" data-type="red"    style="--chip:#ff5f6d">Linear</button>
+    <button type="button" data-type="thock"  style="--chip:#6ee7b7">Thock</button>
+  </div>
+  <label class="volume">
+    <span>Volume</span>
+    <input id="vol" type="range" min="0" max="100" value="80" aria-label="Volume">
+  </label>
+  <button type="button" class="ghost" id="demo">Type a sentence</button>
+</div>
+
+<div class="board">
+  <div class="rows" id="rows"></div>
+</div>
+
+<footer>
+  <p>Keys hit: <span class="count" id="count">0</span> &nbsp;·&nbsp; try <kbd>A</kbd>–<kbd>Z</kbd> on your keyboard</p>
+</footer>
+
+<script src="synth.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var SYMBOLS = {
+    '`': 'Backquote', '-': 'Minus', '=': 'Equal', '[': 'BracketLeft',
+    ']': 'BracketRight', '\\': 'Backslash', ';': 'Semicolon', "'": 'Quote',
+    ',': 'Comma', '.': 'Period', '/': 'Slash'
+  };
+  function codeFor(label) {
+    if (SYMBOLS[label]) return SYMBOLS[label];
+    if (/^[a-z]$/i.test(label)) return 'Key' + label.toUpperCase();
+    if (/^[0-9]$/.test(label)) return 'Digit' + label;
+    return label;
+  }
+
+  var LAYOUT = [
+    ['`', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=',
+      { l: 'Backspace', w: 2, s: 1, code: 'Backspace' }],
+    [{ l: 'Tab', w: 1.5, s: 1, code: 'Tab' },
+      'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P', '[', ']',
+      { l: '\\', w: 1.5 }],
+    [{ l: 'Caps', w: 1.75, s: 1, code: 'CapsLock' },
+      'A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', ';', "'",
+      { l: 'Enter', w: 2.25, s: 1, code: 'Enter' }],
+    [{ l: 'Shift', w: 2.25, s: 1, code: 'ShiftLeft' },
+      'Z', 'X', 'C', 'V', 'B', 'N', 'M', ',', '.', '/',
+      { l: 'Shift', w: 2.75, s: 1, code: 'ShiftRight' }],
+    [{ l: 'Ctrl', w: 1.25, s: 1, code: 'ControlLeft' },
+      { l: 'Alt', w: 1.25, s: 1, code: 'AltLeft' },
+      { l: 'Cmd', w: 1.25, s: 1, code: 'MetaLeft' },
+      { l: 'Space', w: 6.25, s: 1, code: 'Space' },
+      { l: 'Cmd', w: 1.25, s: 1, code: 'MetaRight' },
+      { l: 'Alt', w: 1.25, s: 1, code: 'AltRight' },
+      { l: 'Menu', w: 1.25, s: 1, code: 'ContextMenu' },
+      { l: 'Ctrl', w: 1.25, s: 1, code: 'ControlRight' }]
+  ];
+
+  var COLORS = { blue: '#4f8cff', brown: '#d08b4f', red: '#ff5f6d', thock: '#6ee7b7' };
+  var HOLD = 85; // ms a key stays visually "down"
+
+  var rowsEl = document.getElementById('rows');
+  var countEl = document.getElementById('count');
+  var volEl = document.getElementById('vol');
+  var demoBtn = document.getElementById('demo');
+  var typeBtns = Array.prototype.slice.call(document.querySelectorAll('.seg button'));
+
+  var keyEls = {};      // KeyboardEvent.code -> [elements]
+  var labelToCode = {}; // 'a' -> 'KeyA'
+  var ctx = null, synth = null;
+  var current = 'brown';
+  var count = 0;
+
+  // ---------- build the keyboard ----------
+  LAYOUT.forEach(function (row) {
+    var rowEl = document.createElement('div');
+    rowEl.className = 'row';
+    row.forEach(function (spec) {
+      var key = typeof spec === 'string' ? { l: spec } : spec;
+      var code = key.code || codeFor(key.l);
+      var el = document.createElement('button');
+      el.type = 'button';
+      el.className = 'key' + (key.s ? ' small' : '');
+      el.dataset.code = code;
+      el.style.setProperty('--w', key.w || 1);
+      el.setAttribute('aria-label', key.l === 'Space' ? 'Space' : key.l);
+      var label = document.createElement('span');
+      label.className = 'label';
+      label.textContent = key.l;
+      el.appendChild(label);
+      rowEl.appendChild(el);
+      (keyEls[code] = keyEls[code] || []).push(el);
+      if (/^[A-Z]$/.test(key.l)) labelToCode[key.l.toLowerCase()] = code;
+    });
+    rowsEl.appendChild(rowEl);
+  });
+
+  // ---------- audio ----------
+  var volume = 0.8;
+  function ensureAudio() {
+    if (ctx) {
+      if (ctx.state === 'suspended') ctx.resume();
+      return true;
+    }
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return false;
+    ctx = new AC();
+    synth = new KeySynth(ctx, { volume: volume, reverb: 0.15 });
+    return true;
+  }
+
+  function flash(code) {
+    var els = keyEls[code];
+    if (!els) return;
+    els.forEach(function (el) {
+      el.classList.add('flash');
+      clearTimeout(el._t);
+      // Fallback in case a keyup never arrives (focus loss mid-press).
+      el._t = setTimeout(function () { el.classList.remove('flash'); }, 2000);
+    });
+  }
+
+  function unflash(code) {
+    var els = keyEls[code];
+    if (!els) return;
+    els.forEach(function (el) {
+      clearTimeout(el._t);
+      el.classList.remove('flash');
+    });
+  }
+
+  // One key hit. `down` is the press; the release tick is quieter and higher.
+  function hit(code, down) {
+    if (!ensureAudio()) return;
+    synth.play(current, { up: !down, velocity: 0.9 + Math.random() * 0.2 });
+    if (down) {
+      count++;
+      countEl.textContent = count;
+      flash(code);
+    } else {
+      unflash(code);
+    }
+  }
+
+  // ---------- pointer input ----------
+  rowsEl.addEventListener('pointerdown', function (e) {
+    var el = e.target.closest ? e.target.closest('.key') : null;
+    if (!el) return;
+    e.preventDefault();
+    var code = el.dataset.code;
+    hit(code, true);
+    setTimeout(function () { hit(code, false); }, HOLD);
+  });
+
+  // Keyboard/screen-reader activation of a focused key (Enter or Space fires a
+  // click with detail 0). Pointer presses are already handled above.
+  rowsEl.addEventListener('click', function (e) {
+    if (e.detail !== 0) return;
+    var el = e.target.closest ? e.target.closest('.key') : null;
+    if (!el) return;
+    press(el.dataset.code);
+  });
+
+  // ---------- physical keyboard ----------
+  var MODIFIER_CODES = {
+    ControlLeft: 1, ControlRight: 1, AltLeft: 1, AltRight: 1,
+    MetaLeft: 1, MetaRight: 1
+  };
+  function wanted(e) {
+    if (!keyEls[e.code]) return false;
+    // In a shortcut such as Ctrl+C only one key should click; pressing the
+    // modifier itself still should.
+    if ((e.metaKey || e.ctrlKey || e.altKey) && !MODIFIER_CODES[e.code]) return false;
+    return true;
+  }
+  function activatingKeycap(e) {
+    // A focused keycap fires its own click for Enter/Space; that plays it once.
+    return e.code === 'Enter' || e.code === 'Space'
+      ? !!(e.target && e.target.closest && e.target.closest('.key'))
+      : false;
+  }
+  window.addEventListener('keydown', function (e) {
+    if (activatingKeycap(e) || !wanted(e)) return;
+    // Tab still moves focus, but should not scroll the page away or navigate back.
+    if (e.code === 'Space' || e.code === 'Backspace') e.preventDefault();
+    hit(e.code, true);
+  });
+  window.addEventListener('keyup', function (e) {
+    if (activatingKeycap(e) || !wanted(e)) return;
+    hit(e.code, false);
+  });
+
+  // ---------- controls ----------
+  function selectType(type) {
+    current = type;
+    document.documentElement.style.setProperty('--accent', COLORS[type]);
+    typeBtns.forEach(function (b) {
+      b.setAttribute('aria-pressed', String(b.dataset.type === type));
+    });
+  }
+  typeBtns.forEach(function (b) {
+    b.addEventListener('click', function () {
+      selectType(b.dataset.type);
+      hit('KeyA', true);
+      setTimeout(function () { hit('KeyA', false); }, HOLD);
+    });
+  });
+
+  volEl.addEventListener('input', function () {
+    volume = Number(volEl.value) / 100;
+    if (synth) synth.setVolume(volume);
+    if (volume > 0) ensureAudio();
+  });
+
+  // ---------- auto-typing demo ----------
+  var demoRunning = false;
+  function press(code) {
+    hit(code, true);
+    setTimeout(function () { hit(code, false); }, HOLD);
+  }
+  demoBtn.addEventListener('click', function () {
+    if (demoRunning) return;
+    if (!ensureAudio()) return;
+    demoRunning = true;
+    demoBtn.disabled = true;
+    var text = 'the quick brown fox jumps over the lazy dog';
+    var i = 0;
+    (function step() {
+      if (i >= text.length) {
+        setTimeout(function () { demoRunning = false; demoBtn.disabled = false; }, 500);
+        return;
+      }
+      var ch = text[i++];
+      if (ch === ' ') press('Space');
+      else if (labelToCode[ch]) press(labelToCode[ch]);
+      setTimeout(step, 62 + Math.random() * 72);
+    })();
+  });
+
+  selectType(current);
+})();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>KeySynth offline audio check</title></head>
+<body>
+<pre id="out">running...</pre>
+<script src="../synth.js"></script>
+<script>
+/* Renders each switch preset through an OfflineAudioContext and measures the
+   result, so the sound is verified by numbers instead of by ear. */
+(async function () {
+  var SR = 44100;
+  var lines = [], pass = 0, fail = 0;
+
+  function check(name, ok, detail) {
+    ok ? pass++ : fail++;
+    lines.push((ok ? 'PASS  ' : 'FAIL  ') + name + (detail ? '  [' + detail + ']' : ''));
+  }
+
+  function render(type, opts) {
+    opts = opts || {};
+    var dur = opts.dur || 1.0;
+    var oac = new OfflineAudioContext(2, Math.floor(SR * dur), SR);
+    var s = new KeySynth(oac, { volume: opts.volume == null ? 0.8 : opts.volume, reverb: 0.15 });
+    var plays = opts.plays || 1;
+    var gap = opts.gap || 0.12;
+    for (var i = 0; i < plays; i++) s.play(type, { up: !!opts.up, velocity: 1, when: i * gap });
+    return oac.startRendering();
+  }
+
+  function stats(buf) {
+    var d = buf.getChannelData(0), peak = 0, sum = 0, i, a;
+    for (i = 0; i < d.length; i++) { a = Math.abs(d[i]); if (a > peak) peak = a; sum += d[i] * d[i]; }
+    return { peak: peak, rms: Math.sqrt(sum / d.length) };
+  }
+
+  function rmsBetween(buf, from, to) {
+    var d = buf.getChannelData(0);
+    var a = Math.floor(from * SR), b = Math.min(d.length, Math.floor(to * SR));
+    var sum = 0, i;
+    for (i = a; i < b; i++) sum += d[i] * d[i];
+    return Math.sqrt(sum / Math.max(1, b - a));
+  }
+
+  // Time for the 5 ms window envelope to fall to 0.1% of peak.
+  function decayMs(buf) {
+    var d = buf.getChannelData(0), peak = 0, i;
+    for (i = 0; i < d.length; i++) peak = Math.max(peak, Math.abs(d[i]));
+    var thr = peak * 0.001, win = Math.floor(0.005 * SR), start = -1;
+    for (i = 0; i + win < d.length; i += win) {
+      var m = 0;
+      for (var j = i; j < i + win; j++) m = Math.max(m, Math.abs(d[j]));
+      if (m > thr) start = i + win;
+      else if (start >= 0) break;
+    }
+    return start < 0 ? -1 : (start / SR) * 1000;
+  }
+
+  var TYPES = ['blue', 'brown', 'red', 'thock'];
+  var downs = {};
+
+  for (var t = 0; t < TYPES.length; t++) {
+    var type = TYPES[t];
+    var buf = await render(type);
+    var st = stats(buf);
+    var head = rmsBetween(buf, 0, 0.05);
+    var tail = rmsBetween(buf, 0.6, 0.99);
+    var ms = decayMs(buf);
+
+    downs[type] = st;
+    lines.push('-- ' + type + ': peak=' + st.peak.toFixed(4) +
+      ' rms(first 50ms)=' + head.toFixed(5) +
+      ' rms(0.6-1.0s)=' + tail.toFixed(6) +
+      ' decay~' + ms.toFixed(0) + 'ms');
+
+    check(type + ' produces audible output', st.peak > 0.02, 'peak ' + st.peak.toFixed(4));
+    check(type + ' does not clip', st.peak <= 1.0, 'peak ' + st.peak.toFixed(4));
+    check(type + ' properly decays to silence', tail < 0.05 * head && tail < 0.002,
+      'tail/head ' + (tail / head).toFixed(4));
+    check(type + ' is short (< 600ms to silence)', ms > 0 && ms < 600, ms.toFixed(0) + 'ms');
+  }
+
+  // Release tick must be quieter than the press.
+  for (var u = 0; u < TYPES.length; u++) {
+    var ut = TYPES[u];
+    var upBuf = await render(ut, { up: true });
+    var upSt = stats(upBuf);
+    check(ut + ' release tick is quieter than press', upSt.peak < downs[ut].peak * 0.9 && upSt.peak > 0.005,
+      upSt.peak.toFixed(4) + ' vs ' + downs[ut].peak.toFixed(4));
+  }
+
+  // A single hit should be punchy, not a whisper.
+  for (var q = 0; q < TYPES.length; q++) {
+    check(TYPES[q] + ' is punchy (peak > 0.35)', downs[TYPES[q]].peak > 0.35,
+      'peak ' + downs[TYPES[q]].peak.toFixed(4));
+  }
+
+  // Worst case for the limiter: two hits at the exact same instant.
+  for (var v = 0; v < TYPES.length; v++) {
+    var simBuf = await render(TYPES[v], { plays: 2, gap: 0, dur: 0.5 });
+    var simSt = stats(simBuf);
+    check(TYPES[v] + ' two simultaneous hits do not clip', simSt.peak <= 1.0,
+      'peak ' + simSt.peak.toFixed(4));
+  }
+
+  // Repeated typing must not build up into a drone or clip.
+  var manyBuf = await render('brown', { plays: 8, gap: 0.1, dur: 1.4 });
+  var manySt = stats(manyBuf);
+  check('8 rapid hits stay below clipping', manySt.peak <= 1.0, 'peak ' + manySt.peak.toFixed(4));
+  check('8 rapid hits are not silent', manySt.peak > 0.05, 'peak ' + manySt.peak.toFixed(4));
+
+  // Volume 0 must be truly silent.
+  var muteBuf = await render('blue', { volume: 0 });
+  var muteSt = stats(muteBuf);
+  check('volume 0 is silent', muteSt.peak < 1e-6, 'peak ' + muteSt.peak.toExponential(2));
+
+  // Stereo width from the panner (both channels used, not identical).
+  var stBuf = await render('thock');
+  var l = stBuf.getChannelData(0), r = stBuf.getChannelData(1), diff = 0;
+  for (var k = 0; k < l.length; k++) diff += Math.abs(l[k] - r[k]);
+  check('output is stereo', diff / l.length > 1e-6, 'mean |L-R| ' + (diff / l.length).toExponential(2));
+
+  lines.push('');
+  lines.push(fail === 0 ? 'ALL OK (' + pass + ' checks passed)' : fail + ' FAILED, ' + pass + ' passed');
+  document.getElementById('out').textContent = lines.join('\n');
+  document.title = fail === 0 ? 'AUDIO-OK' : 'AUDIO-FAIL';
+})().catch(function (e) {
+  document.getElementById('out').textContent = 'ERROR: ' + (e && e.stack || e);
+  document.title = 'AUDIO-FAIL';
+});
+</script>
+</body>
+</html>

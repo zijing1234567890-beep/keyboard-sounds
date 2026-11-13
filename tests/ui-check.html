@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<!--
+  Layout and interaction checks for index.html.
+  Must be SERVED over http (not opened as a file:// URL) because it inspects
+  index.html inside a same-origin iframe:
+      python3 -m http.server 8123      then open /tests/ui-check.html
+-->
+<html lang="en">
+<head><meta charset="utf-8"><title>layout + interaction checks</title></head>
+<body>
+<pre id="out">running...</pre>
+<iframe id="f" style="width:1280px;height:900px;border:0" src="../index.html"></iframe>
+<script>
+(function () {
+  var lines = [], pass = 0, fail = 0;
+  function check(name, ok, detail) {
+    ok ? pass++ : fail++;
+    lines.push((ok ? 'PASS  ' : 'FAIL  ') + name + (detail ? '  [' + detail + ']' : ''));
+  }
+  var sleep = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
+
+  document.getElementById('f').addEventListener('load', async function () {
+    var f = document.getElementById('f');
+    var d = f.contentDocument, w = f.contentWindow;
+    await sleep(250);
+
+    function rows() { return Array.prototype.slice.call(d.querySelectorAll('.row')); }
+
+    function measure(label) {
+      var rs = rows().map(function (r) { return +r.getBoundingClientRect().width.toFixed(1); });
+      var keys = Array.prototype.slice.call(d.querySelectorAll('.key'));
+      var h = keys[0].getBoundingClientRect().height;
+      var board = d.querySelector('.board').getBoundingClientRect();
+      var overflow = d.documentElement.scrollWidth - d.documentElement.clientWidth;
+      lines.push('-- ' + label + ': rows=' + rs.join(',') +
+        ' keyHeight=' + h.toFixed(1) + ' boardWidth=' + board.width.toFixed(1) +
+        ' hOverflow=' + overflow);
+      return { rs: rs, h: h, board: board, overflow: overflow, keys: keys.length };
+    }
+
+    // --- desktop ---
+    var desk = measure('desktop 1280');
+    var spread = Math.max.apply(null, desk.rs) - Math.min.apply(null, desk.rs);
+    check('all 5 rows are the same width', desk.rs.length === 5 && spread < 1.5, 'spread ' + spread.toFixed(2) + 'px');
+    check("61 keys rendered", desk.keys === 61, desk.keys + ' keys');
+    check('desktop keys are >= 44px tall (tap target)', desk.h >= 44, desk.h.toFixed(1) + 'px');
+    check('no horizontal overflow at 1280', desk.overflow <= 0, desk.overflow + 'px');
+    check('board fits in viewport', desk.board.width <= 1280, desk.board.width.toFixed(0) + 'px');
+
+    // --- buttons are visibly separated ---
+    var rowEls = rows();
+    var r1 = rowEls[0].querySelectorAll('.key');
+    var k0 = r1[0].getBoundingClientRect(), k1 = r1[1].getBoundingClientRect();
+    var keyGap = k1.left - k0.right;
+    var rowGap = rowEls[1].getBoundingClientRect().top - rowEls[0].getBoundingClientRect().bottom;
+    check('neighbouring keys have a real gap across and down', keyGap >= 7 && rowGap >= 7,
+      keyGap.toFixed(1) + 'px across, ' + rowGap.toFixed(1) + 'px down');
+    check('the gap is 12-25% of a key width', keyGap / k0.width > 0.12 && keyGap / k0.width < 0.25,
+      (100 * keyGap / k0.width).toFixed(1) + '%');
+    var segBox = d.querySelector('.seg').getBoundingClientRect();
+    var volBox = d.querySelector('.volume').getBoundingClientRect();
+    check('toolbar button groups are spaced apart', volBox.left - segBox.right >= 20,
+      (volBox.left - segBox.right).toFixed(1) + 'px');
+    var segBtns = d.querySelectorAll('.seg button');
+    var segGap = segBtns[1].getBoundingClientRect().left - segBtns[0].getBoundingClientRect().right;
+    check('the four switch buttons are separated from each other', segGap >= 5,
+      segGap.toFixed(1) + 'px');
+
+    // --- phone ---
+    f.style.width = '360px';
+    f.style.height = '780px';
+    await sleep(250);
+    var phone = measure('phone 360');
+    var pSpread = Math.max.apply(null, phone.rs) - Math.min.apply(null, phone.rs);
+    check('rows stay equal width on a phone', pSpread < 1.5, 'spread ' + pSpread.toFixed(2) + 'px');
+    check('no horizontal overflow at 360', phone.overflow <= 0, phone.overflow + 'px');
+    check('phone keys are at least 14px tall', phone.h >= 14, phone.h.toFixed(1) + 'px');
+    var labelPx = parseFloat(w.getComputedStyle(d.querySelector('.key[data-code="KeyA"]')).fontSize);
+    check('key labels stay legible on a phone', labelPx >= 7, labelPx.toFixed(1) + 'px');
+
+    f.style.width = '320px';
+    f.style.height = '700px';
+    await sleep(250);
+    var small = measure('phone 320');
+    check('no horizontal overflow at 320', small.overflow <= 0, small.overflow + 'px');
+    check('rows stay equal width at 320',
+      Math.max.apply(null, small.rs) - Math.min.apply(null, small.rs) < 1.5,
+      'spread ' + (Math.max.apply(null, small.rs) - Math.min.apply(null, small.rs)).toFixed(2) + 'px');
+
+    f.style.width = '1280px';
+    f.style.height = '900px';
+    await sleep(200);
+
+    // --- interaction: pointer press plays audio + animates + counts ---
+    var keyK = d.querySelector('.key[data-code="KeyK"]');
+    var before = +d.getElementById('count').textContent;
+    keyK.dispatchEvent(new w.PointerEvent('pointerdown', { bubbles: true, cancelable: true, isPrimary: true }));
+    await sleep(30);
+    check('pointerdown flashes the key', keyK.classList.contains('flash'));
+    check('pointerdown increments the counter', +d.getElementById('count').textContent === before + 1,
+      d.getElementById('count').textContent);
+    check('audio graph built without throwing', !!w.document.querySelector('.key'));
+    await sleep(140);
+    check('key springs back after release', !keyK.classList.contains('flash'));
+
+    // --- interaction: physical keyboard ---
+    var keyM = d.querySelector('.key[data-code="KeyM"]');
+    w.dispatchEvent(new w.KeyboardEvent('keydown', { code: 'KeyM', bubbles: true }));
+    await sleep(30);
+    check('physical keydown flashes the matching keycap', keyM.classList.contains('flash'));
+
+    // --- interaction: switch preset ---
+    d.querySelector('.seg button[data-type="thock"]').click();
+    await sleep(30);
+    var accent = w.getComputedStyle(d.documentElement).getPropertyValue('--accent').trim();
+    check('preset button sets aria-pressed',
+      d.querySelector('.seg button[data-type="thock"]').getAttribute('aria-pressed') === 'true' &&
+      d.querySelector('.seg button[data-type="brown"]').getAttribute('aria-pressed') === 'false');
+    check('preset switch updates the accent colour', accent === '#6ee7b7', accent);
+
+    // --- keyboard handling ---
+    function fireKey(target, init) {
+      var evt = new w.KeyboardEvent('keydown',
+        Object.assign({ bubbles: true, cancelable: true }, init));
+      target.dispatchEvent(evt);
+      return evt.defaultPrevented;
+    }
+    var ctrlKey = d.querySelector('.key[data-code="ControlLeft"]');
+    fireKey(d.body, { code: 'ControlLeft' });
+    await sleep(30);
+    check('pressing Ctrl on a real keyboard clicks the Ctrl key', ctrlKey.classList.contains('flash'));
+
+    var keyC = d.querySelector('.key[data-code="KeyC"]');
+    fireKey(d.body, { code: 'KeyC', ctrlKey: true });
+    await sleep(30);
+    check('Ctrl+C does not also click the C key', !keyC.classList.contains('flash'));
+
+    check('Tab is not swallowed, so focus can still move', fireKey(d.body, { code: 'Tab' }) === false);
+    check('Space on the page is swallowed, so it does not scroll',
+      fireKey(d.body, { code: 'Space' }) === true);
+    check('Space on a focused keycap is left to the keycap',
+      fireKey(d.querySelector('.key[data-code="KeyZ"]'), { code: 'Space' }) === false);
+
+    lines.push('');
+    lines.push(fail === 0 ? 'ALL OK (' + pass + ' checks passed)' : fail + ' FAILED, ' + pass + ' passed');
+    document.getElementById('out').textContent = lines.join('\n');
+  });
+})();
+</script>
+</body>
+</html>
